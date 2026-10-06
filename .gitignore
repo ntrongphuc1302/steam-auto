@@ -1,0 +1,21 @@
+# Runtime state - per-machine, contains DNS snapshots
+state/
+
+# Logs - per-machine, can grow
+logs/
+*.log
+
+# Windows / IDE cruft
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# PowerShell profile overrides
+Microsoft.PowerShell_profile.ps1
+PowerShell_profile.ps1
+
+# Temp artefacts from prober
+*.tmp
