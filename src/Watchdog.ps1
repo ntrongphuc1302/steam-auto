@@ -20,6 +20,23 @@ function Get-NextInterval {
     }
 }
 
+function Invoke-WatchdogTick {
+    # Runs one watchdog tick. Returns $true when Steam looks reachable,
+    # $false when the orchestrator should re-probe. Pulled out of
+    # Start-Watchdog so tests can drive individual ticks without
+    # waiting for the self-restart window.
+    param(
+        [Parameter(Mandatory)][scriptblock]$OnTick
+    )
+
+    try {
+        return (& $OnTick)
+    } catch {
+        try { Write-Log -Level ERROR "Tick failed: $($_.Exception.Message)" } catch { }
+        return $false
+    }
+}
+
 function Start-Watchdog {
     param(
         [Parameter(Mandatory)][int]$SelfRestartHours,
@@ -32,16 +49,11 @@ function Start-Watchdog {
     while ($true) {
         # Self-restart: clean exit so Task Scheduler can relaunch us.
         if ((New-TimeSpan -Start $start -End (Get-Date)).TotalHours -ge $SelfRestartHours) {
-            Write-Log -Level INFO "Self-restart window reached, exiting cleanly"
+            try { Write-Log -Level INFO "Self-restart window reached, exiting cleanly" } catch { }
             return
         }
 
-        try {
-            $steamOk = & $OnTick
-        } catch {
-            $steamOk = $false
-            Write-Log -Level ERROR "Tick failed: $($_.Exception.Message)"
-        }
+        $steamOk = Invoke-WatchdogTick -OnTick $OnTick
 
         if ($steamOk) {
             $consecutiveOk++

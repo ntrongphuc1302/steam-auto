@@ -12,7 +12,7 @@ $script:Profiles = [ordered]@{
         DoH         = $false
         IPv4        = @('1.1.1.1', '1.0.0.1')
         IPv6        = @('2606:4700:4700::1111', '2606:4700:4700::1001')
-        DohTemplate = $null
+        DohTemplate = ''
         Description = 'Cloudflare plain DNS - fast, no DoH'
     }
 
@@ -21,7 +21,7 @@ $script:Profiles = [ordered]@{
         DoH         = $false
         IPv4        = @('8.8.8.8', '8.8.4.4')
         IPv6        = @('2001:4860:4860::8888', '2001:4860:4860::8844')
-        DohTemplate = $null
+        DohTemplate = ''
         Description = 'Google plain DNS - solid fallback'
     }
 
@@ -48,7 +48,7 @@ $script:Profiles = [ordered]@{
         DoH         = $false
         IPv4        = @('9.9.9.9', '149.112.112.112')
         IPv6        = @('2620:fe::fe', '2620:fe::9')
-        DohTemplate = $null
+        DohTemplate = ''
         Description = 'Quad9 plain DNS - last resort, security focused'
     }
 }

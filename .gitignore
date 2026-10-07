@@ -19,3 +19,8 @@ PowerShell_profile.ps1
 
 # Temp artefacts from prober
 *.tmp
+
+# Test run artefacts (regenerated each run)
+tests/test-results.log
+tests/test-exit.txt
+tests/logs-test/

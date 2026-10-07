@@ -9,13 +9,14 @@ watchdog keeps it healthy in the background, even across reboots.
 
 ```cmd
 git clone https://github.com/ntrongphuc1302/steam-auto.git
-cd steam-auto\bin
+cd steam-auto
 install.bat
 ```
 
-That's it. `install.bat` registers a Windows Task named `SteamAuto`
-that runs at every boot, runs once immediately, and then keeps a
-background watchdog on. To remove:
+That's it. `install.bat` runs the full test suite (it must all pass),
+then registers a Windows Task named `SteamAuto` that runs at every
+boot, runs once immediately, and then keeps a background watchdog on.
+To remove:
 
 ```cmd
 uninstall.bat
@@ -80,25 +81,29 @@ is wiped by a clean relaunch.
 
 ```
 steam-auto/
+|-- install.bat             # one-shot: tests + install (admin UAC, root)
+|-- uninstall.bat           # one-shot: restore + remove task (admin UAC, root)
 |-- bin/
-|   |-- install.bat          # one-shot installer
-|   |-- uninstall.bat        # removes the scheduled task + restores DNS
+|   |-- install.bat          # internal: snapshot DNS, register task
+|   |-- uninstall.bat        # internal: restore DNS, delete task
 |   |-- steam-auto.bat       # manual launcher
 |   `-- steam-auto.ps1       # orchestrator (PowerShell)
 |-- src/                     # library files, dot-sourced by the orchestrator
-|   |-- Config.ps1
-|   |-- Logger.ps1
-|   |-- State.ps1
-|   |-- Profiles.ps1
-|   |-- Prober.ps1
-|   |-- Detect.ps1
-|   |-- Applier.ps1
-|   |-- Rollback.ps1
-|   |-- Cache.ps1
-|   `-- Watchdog.ps1
+|   |-- Config.ps1           # config loader + validator
+|   |-- Logger.ps1           # file + console logging
+|   |-- State.ps1            # atomic state persistence
+|   |-- Profiles.ps1         # the 5 DNS profiles
+|   |-- Prober.ps1           # score each profile
+|   |-- Detect.ps1           # block-kind classifier
+|   |-- Applier.ps1          # actually set DNS / DoH
+|   |-- Rollback.ps1         # restore from snapshot
+|   |-- Cache.ps1            # warm the resolver cache
+|   `-- Watchdog.ps1         # adaptive polling loop
 |-- config/
 |   `-- config.psd1          # user-tunable defaults
-|-- docs/                    # screenshots, diagrams (empty for now)
+|-- tests/                   # 18 hermetic tests (run sandbox-safe)
+|   |-- run-all.ps1          # one-shot runner
+|   `-- test-*.ps1
 |-- logs/                    # runtime logs (gitignored)
 |-- state/                   # runtime state (gitignored)
 |-- .gitignore
@@ -116,6 +121,34 @@ If the file is invalid or missing, sensible defaults are used.
 `logs\steam-auto-YYYY-MM-DD.log` keeps a daily record. Only meaningful
 events are logged (failures, profile changes, rollbacks) unless
 `LogVerbose = $true` in the config.
+
+## Testing
+
+Hermetic unit tests live in `tests\`. The full suite runs in any
+PowerShell 5.1 session (no admin required):
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\run-all.ps1
+```
+
+There are three runner scripts to choose from:
+
+| Script | Needs admin? | Logs to? |
+|--------|--------------|-----------|
+| `install.bat` (root) | yes (UAC) | `tests\test-results.log` |
+| `tests\run-all.ps1` | no | stdout only |
+
+The root `install.bat` self-elevates and runs the E2E test
+(`test-08-e2e-rollback.ps1`) which actually mutates DNS; it only
+installs the scheduled service after the full suite is green.
+
+The `tests\run-all.ps1` runner is non-admin by default and skips
+the E2E test when called from a sandbox; the E2E test runs whenever
+the caller is elevated (and skips itself otherwise).
+
+After any batch runner finishes, the log opens automatically. The
+final exit code is also written to `tests\test-exit.txt` so you
+can `type tests\test-exit.txt` later to check.
 
 ## Safety
 

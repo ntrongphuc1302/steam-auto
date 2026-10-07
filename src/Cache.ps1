@@ -16,18 +16,16 @@ $script:WarmupHosts = @(
 function Invoke-DnsWarmup {
     param([string]$RepoRoot)
 
-    foreach ($host in $script:WarmupHosts) {
+    # First pass: clear cache so we know entries are freshly resolved.
+    ipconfig /flushdns | Out-Null
+    # Second pass: resolve each host so entries land in the local resolver
+    # cache. We use $h instead of $host because $host is an automatic
+    # read-only variable in PowerShell.
+    foreach ($h in $script:WarmupHosts) {
         try {
-            $null = Resolve-DnsName $host -ErrorAction Stop
+            $null = Resolve-DnsName $h -ErrorAction Stop
         } catch {
             # OK if one of them fails; cache warmup is best-effort.
         }
-    }
-    ipconfig /flushdns | Out-Null
-    # Resolve again so entries land in the cache.
-    foreach ($host in $script:WarmupHosts) {
-        try {
-            $null = Resolve-DnsName $host -ErrorAction Stop
-        } catch { }
     }
 }

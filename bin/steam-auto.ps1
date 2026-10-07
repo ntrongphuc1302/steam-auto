@@ -76,7 +76,7 @@ function Invoke-OneTick {
             # Skip profiles that obviously cannot help.
             if ($kind -eq 'ip' -and -not $profile.DoH) { continue }
 
-            $r = Invoke-ProfileProbe -Profile $profile -SpeedTestBytes $config.SpeedTestBytes
+            $r = Invoke-ProfileProbe -Profile $profile -SpeedTestBytes $config.SpeedTestBytes -Weights $config.ScoreWeights
             $results += $r
             Write-Log -Level INFO ("probed {0,-14} latency={1,5}ms tcp={2} https={3,3} score={4,3}" -f $r.Profile, $r.LatencyMs, $r.TcpOk, $r.HttpsCode, $r.Score)
         }
@@ -97,10 +97,17 @@ function Invoke-OneTick {
     }
 
     Write-Log -Level OK "Winner: $($winner.Profile) score=$($winner.Score)"
-    Set-ProfileDns -Profile (Get-ProfileByName -Name $winner.Profile)
-    Update-State -CurrentProfile $winner.Profile -DnsSnapshot $original
+    $winningProfile = Get-ProfileByName -Name $winner.Profile
+    if (-not $winningProfile) {
+        Write-Log -Level ERROR "Winner '$($winner.Profile)' not in profile table, cannot apply"
+        return $false
+    }
+    Set-ProfileDns -Profile $winningProfile
+    Update-State -CurrentProfile $winningProfile.Name -DnsSnapshot $original
 
-    # Pre-warm cache for the new resolver.
+    # Pre-warm cache for the new resolver. We pass -RepoRoot for future
+    # use; current implementation does not need it, but keeps the call
+    # site consistent with the rest of the codebase.
     Invoke-DnsWarmup -RepoRoot $repoRoot
 
     # Wait then verify.

@@ -19,9 +19,14 @@ function Restore-DnsSnapshot {
         }
     }
 
-    # No snapshot: fall back to DHCP.
+    # No snapshot: fall back to DHCP. Set-DnsClientServerAddress has no
+    # -AddressFamily switch on Windows PowerShell 5.1; calling
+    # -ResetServerAddresses twice routes by IP format and clears both
+    # families.
     foreach ($adapter in (Get-NetAdapter | Where-Object { $_.Status -eq 'Up' -and $_.HardwareInterface -eq $true })) {
         try {
+            Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ResetServerAddresses `
+                -ErrorAction SilentlyContinue
             Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ResetServerAddresses `
                 -ErrorAction SilentlyContinue
         } catch { }

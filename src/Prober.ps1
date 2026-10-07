@@ -13,7 +13,8 @@ $script:CdnSpeedUrl     = 'https://cdn.cloudflare.steamstatic.com/client/steam_c
 function Invoke-ProfileProbe {
     param(
         [Parameter(Mandatory)]$Profile,
-        [Parameter(Mandatory)][int]$SpeedTestBytes
+        [Parameter(Mandatory)][int]$SpeedTestBytes,
+        $Weights
     )
 
     $result = [pscustomobject]@{
@@ -66,7 +67,9 @@ function Invoke-ProfileProbe {
         $result.HttpsCode = 0
     }
 
-    # 5. Speed: tiny download to measure Mbps.
+    # 5. Speed: tiny download to measure Mbps. Best-effort; if the CDN
+    # is slow or unreachable the profile still gets a Score=0 for speed.
+    $tmp = $null
     try {
         $tmp = Join-Path $env:TEMP "steam-auto-speed-$($Profile.Name).bin"
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
@@ -74,7 +77,6 @@ function Invoke-ProfileProbe {
         $sw.Stop()
         if ((Test-Path $tmp) -and $sw.ElapsedMilliseconds -gt 0) {
             $size = (Get-Item $tmp).Length
-            Remove-Item $tmp -Force -ErrorAction SilentlyContinue
             if ($size -gt 0) {
                 $bits = $size * 8
                 $kbps = [int]($bits / $sw.ElapsedMilliseconds)
@@ -82,51 +84,63 @@ function Invoke-ProfileProbe {
             }
         }
     } catch { }
+    finally {
+        if ($tmp -and (Test-Path $tmp)) {
+            Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+        }
+    }
 
     # 6. Cleanliness: success status and not redirected to captive portal.
     $result.Clean = ($result.HttpsCode -ge 200 -and $result.HttpsCode -lt 400)
 
-    # 7. Score (out of 100).
-    $result.Score = Compute-ProfileScore -Result $result -SpeedTestBytes $SpeedTestBytes
+    # 7. Score (out of 100). Use the orchestrator's weights if supplied
+    # via config; otherwise fall back to the built-in defaults.
+    $result.Score = Compute-ProfileScore -Result $result -SpeedTestBytes $SpeedTestBytes -Weights $Weights
     return $result
 }
 
 function Compute-ProfileScore {
     param(
         [Parameter(Mandatory)]$Result,
-        [Parameter(Mandatory)][int]$SpeedTestBytes
+        [Parameter(Mandatory)][int]$SpeedTestBytes,
+        $Weights
     )
 
-    # Use the default weights here; orchestrator passes real weights via
-    # the parent call's config.
-    $w = [pscustomobject]@{
-        Latency = 30; Tcp = 25; Https = 15; Speed = 20; Clean = 10
+    # If the caller passed weights, honour them; otherwise use defaults.
+    if ($Weights) {
+        $wLat  = if ($Weights.PSObject.Properties['Latency']) { $Weights.Latency } else { 30 }
+        $wTcp  = if ($Weights.PSObject.Properties['Tcp'])     { $Weights.Tcp }     else { 25 }
+        $wHttp = if ($Weights.PSObject.Properties['Https'])   { $Weights.Https }   else { 15 }
+        $wSpd  = if ($Weights.PSObject.Properties['Speed'])   { $Weights.Speed }   else { 20 }
+        $wCln  = if ($Weights.PSObject.Properties['Clean'])   { $Weights.Clean }   else { 10 }
+    } else {
+        $wLat, $wTcp, $wHttp, $wSpd, $wCln = 30, 25, 15, 20, 10
     }
 
-    # Latency: < 30ms = 30, > 500ms = 0, linear in between.
+    # Latency: < 30ms = full points, > 500ms = 0, linear in between.
     $lat = if ($Result.LatencyMs -le 0) { 0 }
-           elseif ($Result.LatencyMs -le 30) { 30 }
+           elseif ($Result.LatencyMs -le 30) { $wLat }
            elseif ($Result.LatencyMs -ge 500) { 0 }
-           else { [int](30 * (1 - (($Result.LatencyMs - 30) / 470))) }
+           else { [int]($wLat * (1 - (($Result.LatencyMs - 30) / 470))) }
 
-    # TCP: binary 25 / 0.
-    $tcp = if ($Result.TcpOk) { 25 } else { 0 }
+    # TCP: binary.
+    $tcp = if ($Result.TcpOk) { $wTcp } else { 0 }
 
-    # HTTPS: 200/301/302 = full, others partial.
+    # HTTPS: 2xx/3xx = full, 4xx = partial, others = 0.
     $https = switch ($Result.HttpsCode) {
-        { $_ -ge 200 -and $_ -lt 400 } { 15 }
-        { $_ -ge 400 -and $_ -lt 500 } { 5 }
+        { $_ -ge 200 -and $_ -lt 400 } { $wHttp }
+        { $_ -ge 400 -and $_ -lt 500 } { [int]($wHttp / 3) }
         default { 0 }
     }
 
     # Speed: cap at 10 Mbps = full points.
     $speedCap = 10240
     $speed = if ($Result.SpeedKbps -le 0) { 0 }
-             elseif ($Result.SpeedKbps -ge $speedCap) { 20 }
-             else { [int](20 * ($Result.SpeedKbps / $speedCap)) }
+             elseif ($Result.SpeedKbps -ge $speedCap) { $wSpd }
+             else { [int]($wSpd * ($Result.SpeedKbps / $speedCap)) }
 
-    # Clean: binary 10 / 0.
-    $clean = if ($Result.Clean) { 10 } else { 0 }
+    # Clean: binary.
+    $clean = if ($Result.Clean) { $wCln } else { 0 }
 
     return ($lat + $tcp + $https + $speed + $clean)
 }
